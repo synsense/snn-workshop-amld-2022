@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 from rockpool.timeseries import TSContinuous, TSEvent
 import numpy as np
 import torch
@@ -29,24 +29,33 @@ def plot_LIF_record(
     plot_Isyn: bool = True,
     plot_spikes: bool = True,
     plot_Irec: bool = False,
-    plot_U: bool = True,
+    threshold: Optional[float] = None,
     dt: float = 1e-3,
 ) -> None:
 
     if plot_Irec:
-        plot_signal(rec["irec"], "$I_{rec}$", "Current", dt)
+        plot_signal(rec["irec"].detach(), "$I_{rec}$", "Current", dt)
 
     if plot_Isyn:
-        plot_signal(rec["isyn"], "$I_{syn}$", "Current", dt)
+        plot_signal(rec["isyn"].detach(), "$I_{syn}$", "Current", dt)
 
     if plot_Vmem:
-        plot_signal(rec["vmem"], "$V_{mem}$", "Voltage", dt)
+        vmem = rec["vmem"]
+        if threshold is not None:
+            spike_idx = rec["spikes"].detach().nonzero(as_tuple=True)
+            vmem[spike_idx] = threshold
+            if len(rec["spikes"].detach()) > spike_idx[1].max().item() + 1:
+                reset_idx = (spike_idx[0], spike_idx[1] + 1, spike_idx[2])
+                vmem[reset_idx] = 0
 
-    if plot_U:
-        plot_signal(rec["U"], "Surrogate $U$", "", dt)
+            thr = np.ones_like(vmem.detach().flatten()) * threshold
+            thr = TSContinuous.from_clocked(thr, dt=dt)
 
+        plot_signal(vmem, "$V_{mem}$", "Voltage", dt)
+        if threshold is not None:
+            thr.plot(linestyle="dashed")
     if plot_spikes:
-        plot_raster(rec["spikes"], "Output Spikes", dt)
+        plot_raster(rec["spikes"].detach(), "Output Spikes", dt)
 
 
 # Data Generation
@@ -93,9 +102,7 @@ def constant_rate_spike_train(
 
 
 def poisson_spike_train(
-    duration: float,
-    rate: float,
-    dt: float = 1e-3,
+    duration: float, rate: float, dt: float = 1e-3, seed: Optional[int] = None
 ) -> torch.Tensor:
     """
     random_spike_train generate a Poisson frozen random spike train and
@@ -111,7 +118,7 @@ def poisson_spike_train(
     :rtype: torch.Tensor
 
     """
-
+    np.random.seed(seed)
     steps = int(np.round(duration / dt))
     input_sp_raster = np.random.poisson(rate * dt, (1, steps, 1))
     if not any(input_sp_raster.flatten()):

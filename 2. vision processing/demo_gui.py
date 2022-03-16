@@ -55,7 +55,9 @@ def start_samnagui_visualization_process(sender_endpoint, receiver_endpoint, vis
     )
 
 
-def get_model(model_path: Union[os.PathLike, str]):
+def get_model(
+    model_path: Union[os.PathLike, str]
+):
     ann = ANN(n_classes=7)
     sinabs_model = from_model(model=ann, add_spiking_output=True, input_shape=(2, 128, 128))
     sinabs_model = torch.load(model_path)
@@ -67,13 +69,45 @@ def get_model(model_path: Union[os.PathLike, str]):
     )
     return dynapcnn_model
 
-def readout_function(events):
-    def return_result(feature):
-        e = samna.graph.nodes.Readout()
-        e.feature = feature
-        return [e]
+def readout_event_maker(feature):
+    """Make a readout event and send it in a list.
+
+    Args:
+        feature int: The predicted feature
+
+    Returns:
+        List[samna.ui.Readout]: Samna UI Readout Type event with given feature
+    """
+    e = samna.ui.Readout()
+    e.feature = feature
+    return [e]
+
+def find_max_in_dictionary(feature_dictionary):
+    max_feature = 0
+    max_n_spikes = 0
+    for feature, n_spikes in feature_dictionary.items():
+        if n_spikes > max_n_spikes:
+            max_feature = feature
+            max_n_spikes = n_spikes
+    return max_feature, max_n_spikes
     
-    raise NotImplementedError()
+
+def readout_callback(spikes):
+    default_retval = 6  # Id of the class 'other'
+    threshold = 10  # Threshold to return anything else
+    returned_features = {}
+
+    for spike in spikes:
+        if spike.feature in returned_features:
+            returned_features[spike.feature] += 1
+        else:
+            returned_features[spike.feature] = 1
+
+    max_feature, max_n_spikes = find_max_in_dictionary(returned_features)
+    if max_n_spikes > threshold:  # If sufficient events have been received of the feature that was most active
+        return readout_event_maker(max_feature)
+    else:  #  Return other class
+        return readout_event_maker(default_retval)
 
 class SamnaInterface:
     def __init__(
@@ -97,19 +131,18 @@ class SamnaInterface:
         sender_endpoint = samna_node.get_sender_endpoint()
         
         # Parameters for Samna process
-        samna_node_id = 1
-        interpreter_id = 2
         visualizer_id = 3
         dvs_height, dvs_width = 128, 128
-        dvs_layout = [0, 0, 0.5, 1]
+        dvs_layout = [0, 0, 0.5, 0.75]
         readout_layout = [0.5, 0, 1, 0.5]
         spike_count_layout = [0.5, 0.5, 1, 1]
+        power_monitor_layout = [0, 0.75, 0.5, 1]
         window_height, window_width = .5625, .75  # Taken from modelzoo window width and height
         feature_count = 7
         feature_names = [
             "background",
             "clap",
-            "michael_jackson",
+            "michael jackson",
             "stay alive",
             "star",
             "wave",
@@ -131,6 +164,10 @@ class SamnaInterface:
         
         visualizer_port = get_free_port()
         
+        # Start power monitor
+        power_monitor = self.device.get_power_monitor()
+        power_monitor.start_auto_power_measurement(50)
+        
         # Filter chain for visualizing DVS events
         _, _, streamer = self.graph.sequential([self.device.get_model_source_node(), "Speck2bDvsToVizConverter", "VizEventStreamer"])
         
@@ -140,10 +177,13 @@ class SamnaInterface:
         spike_count_node.set_feature_count(feature_count)
         
         # Filter chain for visualizing network output
-        _, readout_filter_node, streamer = self.graph.sequential([self.device.get_model_source_node(), "Speck2bCustomFilterNode", streamer])
-        readout_filter_node.set_filter_function(...)
+        _, spike_collection_node, readout_filter_node, streamer = self.graph.sequential([self.device.get_model_source_node(), spike_collection_node, "Speck2bCustomFilterNode", streamer])
+        readout_filter_node.set_filter_function(readout_callback)
         
+        # Filter chain for visualizing power measurement
+        _, measurement_to_viz, streamer = self.graph.sequential([power_monitor.get_source_node(), "MeasurementToVizConverter", streamer])
         
+        # Make TCP connection between filter and the visualizer
         streamer_endpoint_ip = "tcp://0.0.0.0:" + str(visualizer_port)
         streamer.set_streamer_endpoint(streamer_endpoint_ip)
         
@@ -174,13 +214,13 @@ class SamnaInterface:
         spike_count_plot.set_default_y_max(10)
         
         # Set readout plot
-        
         ## Get images absolute paths
         images = []
         for image in os.listdir(readout_images_path):
             images.append(os.path.abspath(readout_images_path + image))
+        images = sorted(images, key=lambda path: path.split('/')[-1])
         
-        ## Set the plot
+        ## Set readout the plot
         readout_plot_id = samna_gui_node.plots.add_readout_plot(
             "Readout Plot",
             images
@@ -188,26 +228,38 @@ class SamnaInterface:
         readout_plot = getattr(samna_gui_node, f"plot_{readout_plot_id}")
         readout_plot.set_layout(*readout_layout)
         
+        # Set up power measurement plot
+        power_measurement_plot_id = samna_gui_node.plots.add_power_measurement_plot(
+            "Power consumption",
+            3,  # Speck2b has 5 readouts
+            ["io", "ram", "logic"]
+        )
+        power_measurement_plot = getattr(samna_gui_node, f"plot_{power_measurement_plot_id}")
+        power_measurement_plot.set_layout(*power_monitor_layout)
+        power_measurement_plot.set_show_x_span(10)
+        power_measurement_plot.set_label_interval(2)
+        power_measurement_plot.set_max_y_rate(1.5)
+        power_measurement_plot.set_show_point_circle(False)
+        power_measurement_plot.set_default_y_max(1)
+        power_measurement_plot.set_y_label_name("power (mW)")
+        # TODO: Set layout
+        
         
         # Set splitters
         samna_gui_node.splitter.add_destination("dvs_event", samna_gui_node.plots.get_plot_input(dvs_plot_id))
         samna_gui_node.splitter.add_destination("spike_count", samna_gui_node.plots.get_plot_input(spike_count_plot_id))
         samna_gui_node.splitter.add_destination("readout", samna_gui_node.plots.get_plot_input(readout_plot_id))
+        samna_gui_node.splitter.add_destination("measurement", samna_gui_node.plots.get_plot_input(power_measurement_plot_id))
         
         # Assign the values to class attributes for permanent access
         self.visualizer = samna_gui_node
+        
+        # Start the graph
         self.graph.start()
         
+        # Prevent the operation from going out of scope
         while True:
-            time.sleep(0.01)
-        
-        
-        
-    def run_model(
-        self,
-        model_path: Union[os.PathLike, str]
-    ):
-        pass
+            time.sleep(0.0001)
 
 def main():
     # Define parser arguments

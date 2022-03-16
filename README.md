@@ -11,4 +11,4 @@ It is grouped into 4 sections:
 
 ## The team at the workshop
 
-Dylan Muir, Sadique Sheik, Felix Bauer, Philipp Weidel, Hannah Bos, Saeid Haghighatshoar, Nogay Küpelioğlu and Gregor Lenz. You can contact us at <name.surname@synsense.ai>
+Sadique Sheik, Felix Bauer, Philipp Weidel, Hannah Bos, Saeid Haghighatshoar, Nogay Küpelioğlu, Mina Khoei and Gregor Lenz. You can contact us at <name.surname@synsense.ai>

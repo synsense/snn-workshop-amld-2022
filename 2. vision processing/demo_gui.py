@@ -35,6 +35,11 @@ class ANN(nn.Sequential):
 
 
 def get_free_port():
+    """Get a port that is not used by the OS at the moment.
+
+    Returns:
+        str: Port address
+    """
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     free_socket.bind(('0.0.0.0', 0))
     free_socket.listen(5)
@@ -42,7 +47,27 @@ def get_free_port():
     free_socket.close()
     return port
 
-def start_samnagui_visualization_process(sender_endpoint, receiver_endpoint, visualizer_id, window_height, window_width):
+def start_samnagui_visualization_process(
+        sender_endpoint, 
+        receiver_endpoint, 
+        visualizer_id, 
+        window_height, 
+        window_width
+    ):
+    """Start Samna GUI in another process
+    
+    Args:
+        sender_endpoint str: 
+            Sender endpoint tcp address and port
+        receiver_endpoint str: 
+            Receiver endpoint tcp address and port
+        visualizer_id int: 
+            ID of the visualizer (This is necessary for launching multiple visualizations)
+        window_height float: 
+            Height proportion of the window
+        window_width float: 
+            Width proportion of the window
+    """
     visualizer_process = Process(
         target=samnagui.runVisualizer,
         args=(window_width, window_height, receiver_endpoint, sender_endpoint, visualizer_id)
@@ -58,6 +83,16 @@ def start_samnagui_visualization_process(sender_endpoint, receiver_endpoint, vis
 def get_model(
     model_path: Union[os.PathLike, str]
 ):
+    """_summary_
+
+    Args:
+        model_path (Union[os.PathLike, str]):
+            Path to the model
+
+    Returns:
+        DynapcnnCompatibleNetwork:
+            Discretized model that can be run on the Speck2b chip
+    """
     ann = ANN(n_classes=7)
     sinabs_model = from_model(model=ann, add_spiking_output=True, input_shape=(2, 128, 128))
     sinabs_model = torch.load(model_path)
@@ -83,6 +118,17 @@ def readout_event_maker(feature):
     return [e]
 
 def find_max_in_dictionary(feature_dictionary):
+    """Find the maximum value of all keys in the dictionary and return both 
+    the key and value
+
+    Args:
+        feature_dictionary (Dict[int, int]): 
+            Dictionary that contains (int, int) pairs of feature number 
+            and number of recorded spikes
+
+    Returns:
+        Tuple(int, int): Feature number and number of recorded spikes
+    """
     max_feature = 0
     max_n_spikes = 0
     for feature, n_spikes in feature_dictionary.items():
@@ -93,6 +139,15 @@ def find_max_in_dictionary(feature_dictionary):
     
 
 def readout_callback(spikes):
+    """Readout callback to pass to samna
+
+    Args:
+        spikes samna.speck2b.Spike: 
+            Recorded samna spikes from the readout
+
+    Returns:
+        List[samna.ui.Readout]: Samna UI Readout type events
+    """
     default_retval = 6  # Id of the class 'other'
     threshold = 10  # Threshold to return anything else
     returned_features = {}

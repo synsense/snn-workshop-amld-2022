@@ -14,7 +14,7 @@ import time
 class ANN(nn.Sequential):
     def __init__(self, n_classes=10):
         super().__init__(
-            nn.Conv2d(2, 16, kernel_size=(3, 3), stride=2, padding=1, bias=False),  # 16, 64, 64
+            nn.Conv2d(1, 16, kernel_size=(3, 3), stride=2, padding=1, bias=False),  # 16, 64, 64
             nn.ReLU(),
             nn.AvgPool2d(kernel_size=(2, 2)),  # 16, 32, 32
             nn.Dropout2d(0.1),
@@ -94,11 +94,11 @@ def get_model(
             Discretized model that can be run on the Speck2b chip
     """
     ann = ANN(n_classes=7)
-    sinabs_model = from_model(model=ann, add_spiking_output=True, input_shape=(2, 128, 128))
+    sinabs_model = from_model(model=ann, add_spiking_output=True, input_shape=(1, 128, 128))
     sinabs_model = torch.load(model_path)
     dynapcnn_model = DynapcnnCompatibleNetwork(
         snn=sinabs_model.spiking_model,
-        input_shape=(2, 128, 128),
+        input_shape=(1, 128, 128),
         dvs_input=True,
         discretize=True
     )

@@ -40,10 +40,12 @@ class HotpixelFilter:
         self,
         device: samna.device.Speck2bTestboard,
         event_count_threshold: int,
+        transition_state_threshold: int,
         dvs_resolution: Tuple[int, int]
     ):
         self.device = device
         self.event_count_threshold = event_count_threshold
+        self.transition_state_threshold = transition_state_threshold
         self.dvs_map = np.array(shape=dvs_resolution, dtype=int)
         
     def assign_events(
@@ -205,7 +207,12 @@ class SamnaInterface:
         self.device = device
         self.graph = samna.graph.EventFilterGraph()
         self.visualizer = None
-        self.hotpixel_filter = HotpixelFilter(device=device, event_count_threshold=20000, dvs_resolution=(128, 128))
+        self.hotpixel_filter = HotpixelFilter(
+            device=device, 
+            transition_state_threshold=20000,
+            event_count_threshold=20, 
+            dvs_resolution=(128, 128)
+        )
         
         # Build the GUI
         self.build_gui()
@@ -356,7 +363,7 @@ class SamnaInterface:
         camera_events_received = []
         while True:
             camera_events_received.extend(samna_camera_buffer.get_events())
-            if len(camera_events_received) > self.hotpixel_filter.event_count_threshold and not hotpixel_filter_activated_flag:
+            if len(camera_events_received) > self.hotpixel_filter.transition_state_threshold and not hotpixel_filter_activated_flag:
                 self.hotpixel_filter.assign_events(camera_events_received)
                 self.hotpixel_filter.kill_hotpixels()
                 hotpixel_filter_activated_flag = True

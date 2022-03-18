@@ -2,7 +2,8 @@ import argparse
 import torch
 import torch.nn as nn
 import os
-from typing import Union
+import numpy as np
+from typing import Union, Tuple, List
 from sinabs.from_torch import from_model
 from sinabs.backend.dynapcnn import DynapcnnCompatibleNetwork
 from sinabs.backend.dynapcnn import io as dynapcnn_io
@@ -33,6 +34,38 @@ class ANN(nn.Sequential):
             nn.Linear(32*4*4, n_classes, bias=False),
         )
 
+
+class HotpixelFilter:
+    def __init__(
+        self,
+        device: samna.device.Speck2bTestboard,
+        event_count_threshold: int,
+        dvs_resolution: Tuple[int, int]
+    ):
+        self.device = device
+        self.event_count_threshold = event_count_threshold
+        self.dvs_map = np.array(shape=dvs_resolution, dtype=int)
+        
+    def assign_events(
+        self,
+        events: List[samna.speck2b.Spike]
+    ):
+        for event in events:
+            self.dvs_map[event.y, event.x] += 1
+    
+    def find_hotpixels(self):
+        return np.where(self.dvs_map > self.event_count_threshold)
+    
+    def kill_hotpixels(self):
+        source = samna.BasicSourceNode_speck2b_event_input_event()
+        source.add_destination(self.device.get_model().get_sink_node().get_input_node())
+        hotpixels = self.find_hotpixels()
+        kill_events = []
+        for hotpixel in hotpixels:
+            e = samna.speck2b.event.KillSensorPixel(y=hotpixel[0], x=hotpixel[1])
+            kill_events.append(e)
+        source.write(kill_events)
+        
 
 def get_free_port():
     """Get a port that is not used by the OS at the moment.
@@ -172,6 +205,7 @@ class SamnaInterface:
         self.device = device
         self.graph = samna.graph.EventFilterGraph()
         self.visualizer = None
+        self.hotpixel_filter = HotpixelFilter(device=device, event_count_threshold=20000, dvs_resolution=(128, 128))
         
         # Build the GUI
         self.build_gui()
@@ -234,6 +268,11 @@ class SamnaInterface:
         # Filter chain for visualizing network output
         _, spike_collection_node, readout_filter_node, streamer = self.graph.sequential([self.device.get_model_source_node(), spike_collection_node, "Speck2bCustomFilterNode", streamer])
         readout_filter_node.set_filter_function(readout_callback)
+        
+        samna_camera_buffer = samna.BufferSinkNode_speck2b_event_output_event()
+        _, event_type_filter = self.graph.sequential([self.device.get_model_source_node(), "Speck2bMemberSelect", samna_camera_buffer])
+        event_type_filter.set_white_list([9], "layer")  # 9 = events received from sensor
+
         
         # Filter chain for visualizing power measurement
         _, measurement_to_viz, streamer = self.graph.sequential([power_monitor.get_source_node(), "MeasurementToVizConverter", streamer])
@@ -312,8 +351,15 @@ class SamnaInterface:
         # Start the graph
         self.graph.start()
         
-        # Prevent the operation from going out of scope
+        # Check and activate the hotpixel filter
+        hotpixel_filter_activated_flag = False
+        camera_events_received = []
         while True:
+            camera_events_received.extend(samna_camera_buffer.get_events())
+            if len(camera_events_received) > self.hotpixel_filter.event_count_threshold and not hotpixel_filter_activated_flag:
+                self.hotpixel_filter.assign_events(camera_events_received)
+                self.hotpixel_filter.kill_hotpixels()
+                hotpixel_filter_activated_flag = True
             time.sleep(0.0001)
 
 def main():

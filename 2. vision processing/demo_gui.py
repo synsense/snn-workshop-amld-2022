@@ -38,7 +38,7 @@ class ANN(nn.Sequential):
 class HotpixelFilter:
     def __init__(
         self,
-        device: samna.device.Speck2bTestboard,
+        device,
         event_count_threshold: int,
         transition_state_threshold: int,
         dvs_resolution: Tuple[int, int]
@@ -46,11 +46,11 @@ class HotpixelFilter:
         self.device = device
         self.event_count_threshold = event_count_threshold
         self.transition_state_threshold = transition_state_threshold
-        self.dvs_map = np.array(shape=dvs_resolution, dtype=int)
+        self.dvs_map = np.zeros(shape=dvs_resolution, dtype=int)
         
     def assign_events(
         self,
-        events: List[samna.speck2b.Spike]
+        events: List[samna.speck2b.event.Spike]
     ):
         for event in events:
             self.dvs_map[event.y, event.x] += 1
@@ -63,9 +63,12 @@ class HotpixelFilter:
         source.add_destination(self.device.get_model().get_sink_node().get_input_node())
         hotpixels = self.find_hotpixels()
         kill_events = []
-        for hotpixel in hotpixels:
-            e = samna.speck2b.event.KillSensorPixel(y=hotpixel[0], x=hotpixel[1])
+        for y, x in zip(hotpixels[0], hotpixels[1]):
+            e = samna.speck2b.event.KillSensorPixel()
+            e.y=y
+            e.x=x
             kill_events.append(e)
+        print(f"Number of hotpixels killed: {len(kill_events)}")
         source.write(kill_events)
         
 
@@ -277,8 +280,8 @@ class SamnaInterface:
         readout_filter_node.set_filter_function(readout_callback)
         
         samna_camera_buffer = samna.BufferSinkNode_speck2b_event_output_event()
-        _, event_type_filter = self.graph.sequential([self.device.get_model_source_node(), "Speck2bMemberSelect", samna_camera_buffer])
-        event_type_filter.set_white_list([9], "layer")  # 9 = events received from sensor
+        _, event_type_filter, _ = self.graph.sequential([self.device.get_model_source_node(), "Speck2bOutputEventTypeFilter", samna_camera_buffer])
+        event_type_filter.set_desired_type("speck2b::event::DvsEvent")  # 9 = events received from sensor
 
         
         # Filter chain for visualizing power measurement
@@ -364,9 +367,12 @@ class SamnaInterface:
         while True:
             camera_events_received.extend(samna_camera_buffer.get_events())
             if len(camera_events_received) > self.hotpixel_filter.transition_state_threshold and not hotpixel_filter_activated_flag:
+                print(f"Hotpixel filter activated! at event: {len(camera_events_received)}")
                 self.hotpixel_filter.assign_events(camera_events_received)
                 self.hotpixel_filter.kill_hotpixels()
                 hotpixel_filter_activated_flag = True
+            elif hotpixel_filter_activated_flag:  # Deallocate received events as they are no longer useful.
+                camera_events_received = []
             time.sleep(0.0001)
 
 def main():

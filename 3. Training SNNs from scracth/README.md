@@ -10,4 +10,4 @@ Below there is a diagram visualizing the model of interest.
 
 <img src=https://raw.githubusercontent.com/synsense/snn-workshop-amld-2022/master/3.%20Training%20SNNs%20from%20scracth/figures/network.png width="1024">
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1JhBci7CkqlCTS4u5dXesSTNQ_xqP2wfn#scrollTo=uy3yH2T691Na)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/synsense/snn-workshop-amld-2022/blob/master/3.%20Training%20SNNs%20from%20scracth/training_snn_rate.ipynb)

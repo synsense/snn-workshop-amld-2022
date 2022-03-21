@@ -36,6 +36,10 @@ class ANN(nn.Sequential):
 
 
 class HotpixelFilter:
+    """
+        The original description of the algorithm by Alejandro Linares-Barranco et al. in the following paper.
+        - https://www.zora.uzh.ch/id/eprint/184205/1/08836544.pdf
+    """
     def __init__(
         self,
         device,

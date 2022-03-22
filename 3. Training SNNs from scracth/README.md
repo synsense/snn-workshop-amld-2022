@@ -1,4 +1,4 @@
-# Training SNNs from Scractch
+# Training SNNs from Scratch
 
 In this tutorial, we investigate and optimize the firing rate response of a simple spiking neural network (SNN). We define a single neuron with a single input channel and measure its mean firing rate. Specifically, we will explore
 

@@ -241,10 +241,10 @@ class SamnaInterface:
         # Parameters for Samna process
         visualizer_id = 3
         dvs_height, dvs_width = 128, 128
-        dvs_layout = [0, 0, 0.5, 0.75]
+        dvs_layout = [0, 0, 0.5, 0.6]
         readout_layout = [0.5, 0, 1, 0.5]
         spike_count_layout = [0.5, 0.5, 1, 1]
-        power_monitor_layout = [0, 0.75, 0.5, 1]
+        power_monitor_layout = [0, 0.6, 0.5, 1]
         window_height, window_width = .5625, .75  # Taken from modelzoo window width and height
         feature_count = 7
         feature_names = [

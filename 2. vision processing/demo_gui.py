@@ -10,7 +10,9 @@ from sinabs.backend.dynapcnn import io as dynapcnn_io
 import samna, samnagui
 import socket
 from multiprocessing import Process
+from functools import partial
 import time
+import signal
 
 class ANN(nn.Sequential):
     def __init__(self, n_classes=10):
@@ -191,7 +193,7 @@ def readout_callback(spikes):
         List[samna.ui.Readout]: Samna UI Readout type events
     """
     default_retval = 6  # Id of the class 'other'
-    threshold = 10  # Threshold to return anything else
+    threshold = 5  # Threshold to return anything else
     returned_features = {}
 
     for spike in spikes:
@@ -209,20 +211,23 @@ def readout_callback(spikes):
 class SamnaInterface:
     def __init__(
         self,
-        device
+        device,
+        readout_threshold: int = 10
     ):
         self.device = device
         self.graph = samna.graph.EventFilterGraph()
         self.visualizer = None
+        
+        # Define these within the scope of the class for graceful shutdown
+        self.readout_node = None
+        self.power_monitor = None
+    
         self.hotpixel_filter = HotpixelFilter(
             device=device, 
             transition_state_threshold=20000,
             event_count_threshold=20, 
             dvs_resolution=(128, 128)
         )
-        
-        # Build the GUI
-        self.build_gui()
     
     def build_gui(self):
         
@@ -271,6 +276,9 @@ class SamnaInterface:
         power_monitor = self.device.get_power_monitor()
         power_monitor.start_auto_power_measurement(50)
         
+        # Define within the scope of the class to close it.
+        self.power_monitor = power_monitor
+        
         # Filter chain for visualizing DVS events
         _, _, streamer = self.graph.sequential([self.device.get_model_source_node(), "Speck2bDvsToVizConverter", "VizEventStreamer"])
         
@@ -282,6 +290,7 @@ class SamnaInterface:
         # Filter chain for visualizing network output
         _, spike_collection_node, readout_filter_node, streamer = self.graph.sequential([self.device.get_model_source_node(), spike_collection_node, "Speck2bCustomFilterNode", streamer])
         readout_filter_node.set_filter_function(readout_callback)
+        self.readout_node = readout_filter_node # Assign to class to be able to close this for graceful shutdown!
         
         samna_camera_buffer = samna.BufferSinkNode_speck2b_event_output_event()
         _, event_type_filter, _ = self.graph.sequential([self.device.get_model_source_node(), "Speck2bOutputEventTypeFilter", samna_camera_buffer])
@@ -350,7 +359,6 @@ class SamnaInterface:
         power_measurement_plot.set_show_point_circle(False)
         power_measurement_plot.set_default_y_max(1)
         power_measurement_plot.set_y_label_name("power (mW)")
-        # TODO: Set layout
         
         
         # Set splitters
@@ -379,11 +387,19 @@ class SamnaInterface:
                 camera_events_received = []
             time.sleep(0.0001)
 
+def graceful_shuwdown(interface, sig, frame):
+    interface.readout_node.stop()
+    interface.graph.stop()
+    interface.power_monitor.stop_auto_power_measurement()
+    print('Shutting down interface!')
+    exit(0)
+
 def main():
     # Define parser arguments
     parser = argparse.ArgumentParser(description="Run GUI with the model path")
     parser.add_argument("model_path", help="Path to the model")
     device_id = "speck2b:0"
+    
     # Parse arguments
     args = parser.parse_args()
     model_path = args.model_path
@@ -400,7 +416,12 @@ def main():
     samna_device = dynapcnn_model.samna_device
     samna_interface = SamnaInterface(device=samna_device)
     
-
+    # Define interrupt handler
+    signal.signal(signal.SIGINT, partial(graceful_shuwdown, samna_interface))
+    
+    # Build GUI
+    samna_interface.build_gui()
+    
 
 if __name__ == "__main__":
     main()

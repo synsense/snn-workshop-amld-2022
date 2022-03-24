@@ -1,12 +1,10 @@
-# Training SNNs from Scractch
+# Training SNNs from Scratch
 
-In this tutorial, we will investigate and optimize the firing rate response of a simple spiking neural network. We will define a single neuron with a single input channel, then measure the mean firing rate of the spiking neuron throughout the simulation duration. Specifically, we will explore
+In this tutorial, we investigate and optimize the firing rate response of a simple spiking neural network (SNN). We define a single neuron with a single input channel and measure its mean firing rate. Specifically, we will explore
 
-* How to build an SNN using Rockpool torch-backend Leaky Integrate and Fire (LIF) model namely `LIFTorch`
-* How to optimize parameters of an SNNs directly using Back Propagation Through Time (BPTT)
-* Why gradients vanish at spikes and how the problem can be alleviated using surrogate gradients
-
-Below there is a diagram visualizing the model of interest.
+* how to build an SNN using the Rockpool torch-backend Leaky Integrate and Fire (LIF) model (`LIFTorch`)
+* how to optimize the parameters of an SNNs using Back Propagation Through Time (BPTT)
+* why error backpropagation is difficult in SNNs and how it can be tackled using surrogate gradients
 
 <img src=https://raw.githubusercontent.com/synsense/snn-workshop-amld-2022/master/3.%20Training%20SNNs%20from%20scracth/figures/network.png width="1024">
 

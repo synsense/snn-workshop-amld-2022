@@ -400,7 +400,7 @@ class SamnaInterface:
             return readout_event_maker(default_retval)
 
 
-def graceful_shuwdown(interface, sig, frame):
+def graceful_shutdown(interface, sig, frame):
     interface.readout_node.stop()
     interface.graph.stop()
     interface.power_monitor.stop_auto_power_measurement()
@@ -433,7 +433,7 @@ def main():
     samna_interface.load_config(configuration_path)
     
     # Define interrupt handler
-    signal.signal(signal.SIGINT, partial(graceful_shuwdown, samna_interface))
+    signal.signal(signal.SIGINT, partial(graceful_shutdown, samna_interface))
     
     # Build GUI
     samna_interface.build_gui()

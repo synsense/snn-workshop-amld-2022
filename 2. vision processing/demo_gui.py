@@ -5,10 +5,11 @@ import os
 import numpy as np
 from typing import Union, Tuple, List
 from sinabs.from_torch import from_model
-from sinabs.backend.dynapcnn import DynapcnnCompatibleNetwork
+from sinabs.backend.dynapcnn import DynapcnnNetwork
 from sinabs.backend.dynapcnn import io as dynapcnn_io
 import samna, samnagui
 import socket
+import yaml
 from multiprocessing import Process
 from functools import partial
 import time
@@ -127,7 +128,7 @@ def start_samnagui_visualization_process(
 def get_model(
     model_path: Union[os.PathLike, str]
 ):
-    """_summary_
+    """From the path to the model get a dynapcnn network
 
     Args:
         model_path (Union[os.PathLike, str]):
@@ -140,7 +141,7 @@ def get_model(
     ann = ANN(n_classes=7)
     sinabs_model = from_model(model=ann, add_spiking_output=True, input_shape=(1, 128, 128))
     sinabs_model = torch.load(model_path)
-    dynapcnn_model = DynapcnnCompatibleNetwork(
+    dynapcnn_model = DynapcnnNetwork(
         snn=sinabs_model.spiking_model,
         input_shape=(1, 128, 128),
         dvs_input=True,
@@ -180,43 +181,18 @@ def find_max_in_dictionary(feature_dictionary):
             max_feature = feature
             max_n_spikes = n_spikes
     return max_feature, max_n_spikes
-    
-
-def readout_callback(spikes):
-    """Readout callback to pass to samna
-
-    Args:
-        spikes samna.speck2b.Spike: 
-            Recorded samna spikes from the readout
-
-    Returns:
-        List[samna.ui.Readout]: Samna UI Readout type events
-    """
-    default_retval = 6  # Id of the class 'other'
-    threshold = 5  # Threshold to return anything else
-    returned_features = {}
-
-    for spike in spikes:
-        if spike.feature in returned_features:
-            returned_features[spike.feature] += 1
-        else:
-            returned_features[spike.feature] = 1
-
-    max_feature, max_n_spikes = find_max_in_dictionary(returned_features)
-    if max_n_spikes > threshold:  # If sufficient events have been received of the feature that was most active
-        return readout_event_maker(max_feature)
-    else:  #  Return other class
-        return readout_event_maker(default_retval)
 
 class SamnaInterface:
     def __init__(
         self,
-        device,
-        readout_threshold: int = 10
+        device
     ):
         self.device = device
         self.graph = samna.graph.EventFilterGraph()
         self.visualizer = None
+
+        # Define these within the scope of being able to access configuration within
+        self.configuration = None
         
         # Define these within the scope of the class for graceful shutdown
         self.readout_node = None
@@ -246,17 +222,11 @@ class SamnaInterface:
         spike_count_layout = [0.5, 0.5, 1, 1]
         power_monitor_layout = [0, 0.6, 0.5, 1]
         window_height, window_width = .5625, .75  # Taken from modelzoo window width and height
-        feature_count = 7
-        feature_names = [
-            "background",
-            "clap",
-            "michael jackson",
-            "stay alive",
-            "star",
-            "wave",
-            "other"
-        ]
-        spike_collection_interval = 500
+        
+        # Parameters loaded from configuration
+        feature_count = self.configuration["feature_count"]
+        feature_names = self.configuration["feature_names"]
+        spike_collection_interval = self.configuration['spike_collection_interval']
         readout_images_path = "./readout_images/"
         
         
@@ -289,7 +259,7 @@ class SamnaInterface:
         
         # Filter chain for visualizing network output
         _, spike_collection_node, readout_filter_node, streamer = self.graph.sequential([self.device.get_model_source_node(), spike_collection_node, "Speck2bCustomFilterNode", streamer])
-        readout_filter_node.set_filter_function(readout_callback)
+        readout_filter_node.set_filter_function(self.readout_callback)
         self.readout_node = readout_filter_node # Assign to class to be able to close this for graceful shutdown!
         
         samna_camera_buffer = samna.BufferSinkNode_speck2b_event_output_event()
@@ -386,25 +356,68 @@ class SamnaInterface:
             elif hotpixel_filter_activated_flag:  # Deallocate received events as they are no longer useful.
                 camera_events_received = []
             time.sleep(0.0001)
+    
+    def load_config(
+        self, 
+        configuration_path: Union[os.PathLike, str]
+    ):
+        """Load yaml configuration from path
+        
+        Args:
+            configuration_path Union[os.PathLike, str]:
+                Path to the configuration object
+        """
+        with open(configuration_path, "r") as f:
+            self.configuration = yaml.safe_load(f)
+    
+    def readout_callback(
+        self, 
+        spikes
+    ):
+        """Readout callback to pass to samna
+
+        Args:
+            spikes samna.speck2b.Spike: 
+                Recorded samna spikes from the readout
+
+        Returns:
+            List[samna.ui.Readout]: Samna UI Readout type events
+        """
+        default_retval = self.configuration['readout_callback']['default_readout']
+        threshold = self.configuration['readout_callback']['threshold']
+        returned_features = {}
+
+        for spike in spikes:
+            if spike.feature in returned_features:
+                returned_features[spike.feature] += 1
+            else:
+                returned_features[spike.feature] = 1
+
+        max_feature, max_n_spikes = find_max_in_dictionary(returned_features)
+        if max_n_spikes > threshold:  # If sufficient events have been received of the feature that was most active
+            return readout_event_maker(max_feature)
+        else:  #  Return other class
+            return readout_event_maker(default_retval)
+
 
 def graceful_shuwdown(interface, sig, frame):
     interface.readout_node.stop()
     interface.graph.stop()
     interface.power_monitor.stop_auto_power_measurement()
-    print('Shutting down interface!')
+    print('\n Shutting down interface!')
     exit(0)
 
 def main():
     # Define parser arguments
     parser = argparse.ArgumentParser(description="Run GUI with the model path")
     parser.add_argument("model_path", help="Path to the model")
+    parser.add_argument("configuration_path", help="Path to the configuration file")
     device_id = "speck2b:0"
     
     # Parse arguments
     args = parser.parse_args()
     model_path = args.model_path
-    
-    config_modifier = {}
+    configuration_path = args.configuration_path
     
     # Load model from weights
     dynapcnn_model = get_model(model_path=model_path)
@@ -415,6 +428,9 @@ def main():
     )
     samna_device = dynapcnn_model.samna_device
     samna_interface = SamnaInterface(device=samna_device)
+
+    # Load configuration
+    samna_interface.load_config(configuration_path)
     
     # Define interrupt handler
     signal.signal(signal.SIGINT, partial(graceful_shuwdown, samna_interface))

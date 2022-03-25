@@ -73,7 +73,7 @@ def start_samnagui_visualization_process(
         args=(window_width, window_height, receiver_endpoint, sender_endpoint, visualizer_id)
     )
     visualizer_process.start()
-    time.sleep(2) # This is necessary to make sure that the process is running before trying to connect to it.
+    time.sleep(4) # This is necessary to make sure that the process is running before trying to connect to it.
     samna.open_remote_node(
         visualizer_id, 
         "samna_gui_node"

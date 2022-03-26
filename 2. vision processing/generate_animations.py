@@ -15,6 +15,7 @@ ap = ArgumentParser()
 
 ap.add_argument("-f", "--frames", dest="frames", action="store_true")
 ap.add_argument("-r", "--raster", dest="raster", action="store_true")
+ap.add_argument("--scatter", dest="scatter", action="store_true")
 ap.add_argument("--hot", dest="hot_pixel_filter_freq", default=60, type=int)
 ap.add_argument("-c", "--count", dest="event_count", default=3000, type=int)
 ap.add_argument("-s", "--slice", dest="slice_dt", default=2e6, type=float)
@@ -54,14 +55,15 @@ def get_first_rec_of_label(label, dataset):
 def pool(data, kernel_size):
     original_shape = data.shape
     data = torch.as_tensor(data)
-    if data.ndim == 3:
+
+    while data.ndim < 4:
         data.unsqueeze_(0)
 
     original_dtype = data.dtype
     data = data.float() * kernel_size ** 2
     pooled = avg_pool2d(data, kernel_size).type(original_dtype)
 
-    if len(original_shape) == 3:
+    while pooled.ndim > len(original_shape):
         pooled.squeeze_(0)
 
     return pooled.numpy()
@@ -138,12 +140,14 @@ if args.raster:
 
     fig = plt.figure(figsize=(12, 6))
     axes = [fig.add_subplot(2, 4, lbl + 1) for lbl in range(len(raster_dataset.classes))]
-    # screens = [ax.imshow(data[lbl][0]) for lbl, ax in enumerate(axes)]
 
-    scatters = [
-        ax.scatter(*(np.where(data[lbl][0])[::-1]), s=1, color="k")
-        for lbl, ax in enumerate(axes)
-    ]
+    if args.scatter:
+        scatters = [
+            ax.scatter(*(np.where(data[lbl][0])[::-1]), s=1, color="k")
+            for lbl, ax in enumerate(axes)
+        ]
+    else:
+        screens = [ax.imshow(data[lbl][0]) for lbl, ax in enumerate(axes)]
 
     for lbl, ax in enumerate(axes):
         ax.set_title(f"Label: {lbl} - `{lbl2clss[lbl]}`")
@@ -155,17 +159,30 @@ if args.raster:
             labelbottom=False,
             labelleft=False
         )
-        ax.invert_yaxis()
+        if args.scatter:
+            ax.invert_yaxis()
     plt.tight_layout()
 
-    def draw(idx):
-        print(idx, end="\r")
-        for lbl, sctr in enumerate(scatters):
-            # Make sure index does not exceed individual max
-            index = (args.downsample * idx) % len(data[lbl])
-            offsets = np.where(data[lbl][index])[::-1]
-            sctr.set_offsets(np.c_[offsets])
-        return scatters
+    if args.scatter:
+
+        def draw(idx):
+            print(idx, end="\r")
+            for lbl, sctr in enumerate(scatters):
+                # Make sure index does not exceed individual max
+                index = (args.downsample * idx) % len(data[lbl])
+                offsets = np.where(data[lbl][index])[::-1]
+                sctr.set_offsets(np.c_[offsets])
+            return scatters
+
+    else:
+        def draw(idx):
+            print(idx, end="\r")
+            for lbl, scrn in enumerate(screens):
+                # Make sure index does not exceed individual max
+                index = (args.downsample * idx) % len(data[lbl])
+                new_data = pool(data[lbl][index], args.pooling)
+                scrn.set_data(new_data)
+            return screens
 
     num_frames = min(len(smpl) for smpl in data.values())
     anim = FuncAnimation(fig, draw, frames=args.num_frames, blit=True, interval=1)
@@ -183,33 +200,3 @@ if args.raster:
     # anim = FuncAnimation(fig, draw, frames=100, blit=True, interval=1)
     # # plt.show()
     # anim.save('raster.gif', writer='imagemagick', fps=50)
-
-    fig = plt.figure(figsize=(12, 6))
-    axes = [fig.add_subplot(2, 4, lbl + 1) for lbl in range(len(frame_dataset.classes))]
-    # screens = [
-    #     ax.imshow(pool(data[lbl][0], args.pooling)[0], cmap=cm.Greys, vmin=0, vmax=20)
-    #     for lbl, ax in enumerate(axes)
-    # ]
-    for lbl, ax in enumerate(axes):
-        ax.set_title(f"Label: {lbl} - `{lbl2clss[lbl]}`")
-        ax.tick_params(
-            axis="both",
-            which="both",
-            bottom=False,
-            left=False,
-            labelbottom=False,
-            labelleft=False
-        )
-    plt.tight_layout()
-
-    def draw(idx):
-        print(idx, end="\r")
-        # for lbl, scrn in enumerate(screens):
-        #     scrn.set_data(
-        #         pool(data[lbl][(args.downsample * idx) % len(data[lbl])], args.pooling)[0]
-        #     )
-        for lbl, scrn in enumerate(scatters):
-            scrn.set_data(
-                *np.where(pool(data[lbl][(args.downsample * idx) % len(data[lbl])], args.pooling)[0])
-            )
-        return screens

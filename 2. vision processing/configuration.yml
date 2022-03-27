@@ -1,0 +1,16 @@
+hotpixel_filter:
+  transition_state_threshold: 20000
+  event_count_threshold: 20
+readout_callback:
+  default_readout: 6  # Class label for 'other'
+  threshold: 5
+feature_names:
+  - "background"
+  - "clap"
+  - "michael jackson"
+  - "stay alive"
+  - "star"
+  - "wave"
+  - "other"
+feature_count: 7
+spike_collection_interval: 500
